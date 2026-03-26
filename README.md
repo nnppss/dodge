@@ -2,7 +2,7 @@
 
 A context graph system with an LLM-powered query interface built on SAP Order-to-Cash data. Visualize interconnected business entities as a graph and query them using natural language — the system generates SQL, executes it, and returns data-backed answers.
 
-**Live Demo:** `https://your-demo-url.vercel.app`
+**Live Demo:** `https://dodge-liart.vercel.app`
 
 ---
 
