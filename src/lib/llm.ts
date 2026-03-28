@@ -134,6 +134,8 @@ plants(plant PK T, plant_name, sales_organization, plant_category)
 
 O2C JOIN CHAIN: sales_orders→sales_order_items(sales_order)→delivery_items(reference_sd_document=sales_order)→deliveries(delivery_document)→billing_document_items(reference_sd_document=delivery_document)→billing_documents(billing_document)→journal_entries(reference_document=billing_document)→payments(clearing_accounting_document=accounting_document)
 
+PAYMENT STATUS: "pending/unpaid/open" = journal_entries.clearing_date IS NULL AND journal_entries.clearing_accounting_document IS NULL (receivable not cleared). "paid/cleared" = clearing_date IS NOT NULL. Use LEFT JOIN from journal_entries to payments to detect missing payments.
+
 RULES: SELECT only, LIMIT 50, use aliases, LEFT JOIN product_descriptions for names, LEFT JOIN+NULL for broken flows, amounts in INR. NEVER include semicolons in SQL.
 
 JSON: {"sql":"SELECT ...","explanation":"..."} or {"error":"SAP O2C queries only."}`;
