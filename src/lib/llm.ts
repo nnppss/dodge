@@ -134,7 +134,7 @@ plants(plant PK T, plant_name, sales_organization, plant_category)
 
 O2C JOIN CHAIN: sales_orders→sales_order_items(sales_order)→delivery_items(reference_sd_document=sales_order)→deliveries(delivery_document)→billing_document_items(reference_sd_document=delivery_document)→billing_documents(billing_document)→journal_entries(reference_document=billing_document)→payments(clearing_accounting_document=accounting_document)
 
-RULES: SELECT only, LIMIT 50, use aliases, LEFT JOIN product_descriptions for names, LEFT JOIN+NULL for broken flows, amounts in INR.
+RULES: SELECT only, LIMIT 50, use aliases, LEFT JOIN product_descriptions for names, LEFT JOIN+NULL for broken flows, amounts in INR. NEVER include semicolons in SQL.
 
 JSON: {"sql":"SELECT ...","explanation":"..."} or {"error":"SAP O2C queries only."}`;
 
@@ -218,8 +218,8 @@ export async function generateSQL(
 
   const value: { sql: string; explanation: string } | { error: string } =
     parsed.error
-      ? { error: parsed.error }
-      : { sql: parsed.sql, explanation: parsed.explanation };
+      ? { error: parsed.error }      
+      : { sql: parsed.sql?.replace(/[;\s]+$/, ""), explanation: parsed.explanation };
 
   setCache(sqlCache, key, value);
   return value;
