@@ -746,6 +746,8 @@ function GraphCanvasInner({ onNodeInspect, highlightNodes = [] }: GraphCanvasPro
             const c = n.data?.color;
             return typeof c === "string" ? c : "#6B7280";
           }}
+          nodeStrokeWidth={0}
+          nodeBorderRadius={50}
           maskColor="rgba(0,0,0,0.04)"
           style={{ borderRadius: 12, border: "1px solid rgba(0,0,0,0.06)" }}
           pannable
