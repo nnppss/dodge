@@ -1,142 +1,146 @@
 # Graph-Based Data Modeling and Query System
 
-A context graph system with an LLM-powered query interface built on SAP Order-to-Cash data. Visualize interconnected business entities as a graph and query them using natural language — the system generates SQL, executes it, and returns data-backed answers.
+> **An interactive, LLM-powered graph visualization and query system.**
 
-**Live Demo:** `https://dodge-liart.vercel.app`
+O2C Explorer lets you visualize interconnected business entities as a dynamic, explorable graph and query them using plain English. The system translates natural language into precise SQL, executes it against the database, and streams back data-backed answers — with full transparency into every generated query.
 
----
-
-## Tech Stack
-
-| Layer | Choice | Why |
-|---|---|---|
-| Framework | Next.js 14 (App Router) | Full-stack in one deployable unit — frontend, API, and DB access |
-| Database | PostgreSQL (Neon) | LLMs generate reliable SQL; serverless free tier; relational integrity |
-| Graph Viz | React Flow | Built-in zoom/pan/custom nodes for interactive graph exploration |
-| LLM | Gemini 2.0 Flash | Native JSON output mode, fast, strong SQL generation |
-| Styling | Tailwind + shadcn/ui | Clean, professional UI with minimal code |
-| Deployment | Vercel | Zero-config for Next.js, instant demo URLs |
+**Live Demo:** [https://dodge-liart.vercel.app](https://dodge-liart.vercel.app)
 
 ---
 
-## Architecture
+##  Architecture Decisions
 
-```
-User Question
-  → Guardrails (keyword check + LLM classifier)
-    → Gemini Pass 1: generate SQL (temperature: 0, JSON mode)
-      → SQL Validator (SELECT-only, no injection)
-        → Execute on PostgreSQL
-          → Gemini Pass 2: summarize results into natural language
-            → Answer with cited numbers + viewable SQL
-```
+The architecture is designed for performance, reliability, and seamless full-stack integration.
 
-**Why two LLM passes?** A single pass would either hallucinate data or need the entire dataset in context. The two-pass pattern guarantees every answer is grounded in actual query results — the LLM never invents numbers.
+* **Framework: Next.js (App Router)**
+  Maintains the entire application — frontend visualization, streaming API routes, and database access in a single deployable unit. Server-side route handlers keep API keys off the client and enable streaming responses natively.
 
----
+* **Visualization: React Flow (@xyflow/react)**
+  Powers the interactive graph with first-class support for zooming, panning, custom nodes, and dynamic layout. Entity clusters expand into individual nodes on click, and neighbor graphs can be explored by drilling into any entity.
 
-## Database Choice: PostgreSQL over Neo4j
+* **Intelligence: Two-Pass LLM Pipeline (Gemini 2.5 Flash and Gemini 2.5 Flash Lite)**
+  Rather than relying on an LLM to guess answers, the pipeline grounds every response in real data:
+  1. **Pass 1 — SQL Generation:** Translates the user's question into a precise `SELECT` query using Gemini's native JSON output mode at temperature 0.
+  2. **Pass 2 — Streaming Summarization:** Takes the exact rows returned by the database and streams a clear, natural-language summary back to the user in real time.
 
-We model graph relationships inside PostgreSQL using a dedicated `graph_edges` table rather than using a native graph database. Three reasons:
-
-1. **SQL generation reliability.** LLMs produce correct SQL ~95% of the time. Cypher accuracy is significantly lower — more retries, worse UX.
-
-2. **Best of both paradigms.** Entity tables give us relational integrity (composite PKs, typed columns, aggregations). The `graph_edges` table gives us graph traversal for the visualization. One database serves both needs.
-
-3. **Operational simplicity.** One data store, one connection string, one hosting provider. No sync between two databases.
-
-The `graph_edges` table stores ~2000+ explicit relationships across 15 edge types:
-
-```sql
--- This IS a graph query
-SELECT * FROM graph_edges
-WHERE source_type = 'sales_order' AND source_id = '740506';
-```
-
-Edge types include: `SOLD_TO`, `HAS_ITEM`, `FULFILLS_ORDER`, `BILLS_DELIVERY`, `GENERATES_JOURNAL_ENTRY`, `CLEARED_BY`, and 9 others — covering the full O2C chain from order to payment.
+  The LLM layer includes **automatic model rotation** (primary → `gemini-2.5-flash`, fallback → `gemini-2.5-flash-lite`) with retry logic on rate limits, plus an **in-memory response cache** (SQL, summaries, and trace extractions) to minimize redundant API calls.
 
 ---
 
-## Guardrails
+##  Database Design
 
-Three layers, each catching what the previous one misses:
+The data layer runs on **PostgreSQL** (via Neon Serverless) with **Drizzle ORM**. Graph relationships are represented directly in PostgreSQL using a dedicated `graph_edges` table with indexed source/target columns.
 
-### Layer 1 — Keyword Filter (instant, no API call)
+**Why this works well:**
 
-Fast allow/block lists. Handles ~80% of inputs at zero cost.
+* **Reliable SQL generation** — LLMs are exceptionally well-trained on standard SQL schemas, so the NL-to-SQL engine produces highly accurate queries without needing a graph query language.
+* **Relational integrity + graph traversal** — Core entity tables enforce typed columns, composite primary keys, and proper foreign key semantics. The `graph_edges` table (with `source_type`, `source_id`, `target_type`, `target_id`, and JSONB metadata) provides the flexible traversal needed for the frontend graph and the O2C flow tracer.
+* **Operational simplicity** — One connection string, one schema, one hosting provider. No secondary graph database to sync or maintain.
 
-- **Allow:** order, delivery, billing, payment, customer, product, trace, flow, amount, revenue...
-- **Block:** recipe, poem, weather, capital of, write me, code, movie, lyrics...
-
-### Layer 2 — LLM Classifier (for ambiguous inputs)
-
-Single-token Gemini call: "Is this about Order-to-Cash data? YES/NO." Adds ~200ms only when keyword check is inconclusive.
-
-### Layer 3 — SQL Validation (before execution)
-
-Structural regex checks on every generated query:
-
-- Must be `SELECT` only
-- No `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`
-- No semicolons, comments, or `SELECT INTO`
-- Max 2000 characters, 10-second execution timeout
-
-**Rejection message** (consistent across all layers):
-> "This system is designed to answer questions related to the SAP Order-to-Cash dataset only."
-
-| Input | Layer | Result |
-|---|---|---|
-| "What is the capital of France?" | 1 | Rejected |
-| "Tell me about machine learning" | 2 | Rejected |
-| `DROP TABLE sales_orders;` | 3 | Rejected |
-| "Find orders delivered but not billed" | 1 | Allowed |
+**Entity tables:** `sales_orders`, `sales_order_items`, `deliveries`, `delivery_items`, `billing_documents`, `billing_document_items`, `journal_entries`, `payments`, `customers`, `customer_addresses`, `products`, `product_descriptions`, `plants`
 
 ---
 
-## Data Model
+##  Guardrails Pipeline
 
-The O2C flow is a chain: **Sales Order → Delivery → Billing → Journal Entry → Payment**
+A three-layer safety pipeline ensures the system stays secure, performant, and strictly scoped to business data.
 
-13 entity tables, ~1200 core records. Edges are derived from foreign key relationships during ingestion — not stored in the source data.
+1. ** Layer 1: Keyword Filter (Instant)**
+   A zero-cost allow/block list runs before any API call. Messages containing O2C terms (`order`, `delivery`, `billing`, `payment`, etc.) are immediately allowed; clearly off-topic inputs (`recipe`, `poem`, `weather`, etc.) are instantly rejected.
 
-Raw data preprocessing: camelCase → snake_case, string numbers → real types, empty strings → null, nested time objects → flat strings, dropped 2 redundant/irrelevant tables.
+2. ** Layer 2: LLM Classifier (Contextual)**
+   Ambiguous messages that pass through the keyword filter are sent to a lightweight, single-token Gemini call (`gemini-2.5-flash-lite`) that answers: *"Is this about Order-to-Cash data? YES/NO."* The system fails open — if the classifier errors, the query proceeds rather than blocking a legitimate request.
+
+3. ** Layer 3: SQL Validation (Execution Safety)**
+   Before any generated query touches the database, it must pass structural checks:
+   - Must be a `SELECT` statement (no `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, etc.)
+   - No semicolons, line comments (`--`), or block comments (`/*`)
+   - No `SELECT INTO` patterns
+   - 2,000-character hard limit
+   - 10-second execution timeout
 
 ---
 
-## Project Structure
+##  O2C Flow Tracer
 
-```
+A standout feature: given any entity ID (sales order, delivery, billing document, journal entry, or payment), the tracer reconstructs the **complete Order-to-Cash flow** using bidirectional traversal.
+
+**How it works:**
+1. **Backward trace** — Walks from the input entity back to the root sales order.
+2. **Forward trace** — From the root, walks forward through all five O2C steps.
+3. **Issue detection** — Flags broken flows (missing deliveries, unbilled shipments, cancelled invoices, uncleared receivables).
+
+The tracer is accessible both via the `/api/trace` endpoint and through natural language in the chat panel — queries like *"trace the flow for order 740506"* are automatically routed to the trace pipeline.
+
+---
+
+##  Project Structure
+
+```text
 src/
 ├── app/
-│   ├── page.tsx                 # Split layout: graph (65%) + chat (35%)
+│   ├── page.tsx                 
 │   └── api/
-│       ├── graph/route.ts       # Graph data (clusters, expand, neighbors)
-│       ├── chat/route.ts        # NL → SQL → Execute → Summarize
-│       ├── trace/route.ts       # O2C flow tracing + broken flow detection
-│       └── node/[id]/route.ts   # Entity metadata + connections
+│       ├── graph/route.ts       
+│       ├── chat/route.ts        
+│       ├── trace/route.ts       
+│       └── node/[id]/route.ts   
 ├── components/
-│   ├── GraphCanvas.tsx          # React Flow interactive graph
-│   ├── ChatPanel.tsx            # Chat with SQL transparency
-│   ├── NodeDetail.tsx           # Entity detail panel
-│   └── TraceFlow.tsx            # Visual O2C pipeline
+│   ├── GraphCanvas.tsx          
+│   ├── ChatPanel.tsx            
+│   ├── NodeDetail.tsx           
+│   └── TraceFlow.tsx            
 ├── db/
-│   ├── schema.ts                # Drizzle ORM definitions
-│   └── client.ts                # Neon connection + raw SQL executor
-└── lib/
-    ├── llm.ts                   # Gemini (generateSQL + summarizeResults)
-    ├── guardrails.ts            # Topic check + SQL validation
-    └── sql-executor.ts          # Safe execution wrapper
+│   ├── schema.ts                
+│   └── client.ts                
+├── lib/
+│   ├── llm.ts                   
+│   ├── guardrails.ts            
+│   └── sql-executor.ts          
+└── scripts/
+    ├── preprocess.ts            
+    └── ingest.ts                
 ```
 
 ---
 
-## Quick Start
+##  Tech Stack
 
-```bash
-npm install
-cp .env.example .env.local       # Add DATABASE_URL + GEMINI_API_KEY
-npx drizzle-kit push             # Create tables
-npx tsx scripts/preprocess.ts    # Clean raw data
-npx tsx scripts/ingest.ts        # Load data + build edges
-npm run dev                      # http://localhost:3000
-```
+| Layer | Technology |
+|---|---|
+| Framework | Next.js (App Router) |
+| Language | TypeScript |
+| Frontend | React, React Flow, Tailwind CSS, shadcn/ui |
+| LLM | Google Gemini |
+| Database | PostgreSQL (Neon Serverless) |
+| ORM | Drizzle ORM + Drizzle Kit |
+| Deployment | Vercel |
+
+---
+##  Demo Walkthrough
+ 
+Open the [live demo](https://dodge-liart.vercel.app) and try the following:
+ 
+**1. Explore the graph**
+The landing view shows entity clusters (Sales Orders, Deliveries, Customers, etc.) connected by relationship edges. Click any cluster to expand it into individual entity nodes. Click a specific node to open its detail panel with all fields and connections.
+ 
+**2. Ask a question in the chat panel**
+Type a natural language question in the right-side chat. The system translates it to SQL, runs it, and streams back a plain-English answer. You can expand the SQL block under any response to see exactly what query was generated.
+ 
+**3. Trace an O2C flow**
+Ask something like *"Trace the flow of sales order 740506"* — the system walks the full Order → Delivery → Billing → Journal Entry → Payment chain and flags any broken links or missing steps.
+
+---
+
+##  Screenshots
+ 
+<!-- Replace these placeholders with actual screenshots from the live app -->
+ 
+| View | Screenshot |
+|---|---|
+| Graph Overview | ![Graph Overview](ss/graphoverview1.png) |
+| Chat with SQL Transparency | ![Chat Panel](ss/chatpanel.png) |
+| O2C Flow Trace | ![Flow Trace](ss/flowtrace.png) |
+| Entity Detail Panel | ![Node Detail](ss/nodedetail.png) |
+
+---
