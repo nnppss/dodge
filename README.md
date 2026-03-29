@@ -2,7 +2,7 @@
 
 > **An interactive, LLM-powered graph visualization and query system.**
 
-O2C Explorer lets you visualize interconnected business entities as a dynamic, explorable graph and query them using plain English. The system translates natural language into precise SQL, executes it against the database, and streams back data-backed answers — with full transparency into every generated query.
+This project lets you visualize interconnected business entities as a dynamic, explorable graph and query them using plain English. The system translates natural language into precise SQL, executes it against the database, and streams back data-backed answers with full transparency into every generated query.
 
 **Live Demo:** [https://dodge-liart.vercel.app](https://dodge-liart.vercel.app)
 
