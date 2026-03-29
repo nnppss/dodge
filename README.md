@@ -138,7 +138,8 @@ Ask something like *"Trace the flow of sales order 740506"* — the system walks
  
 | View | Screenshot |
 |---|---|
-| Graph Overview | ![Graph Overview](ss/graphoverview1.png) |
+| Graph Overview 1 | ![Graph Overview](ss/graphoverview1.png) |
+| Graph Overview 2 | ![Graph Overview](ss/graphoverview2.png) |
 | Chat with SQL Transparency | ![Chat Panel](ss/chatpanel.png) |
 | O2C Flow Trace | ![Flow Trace](ss/flowtrace.png) |
 | Entity Detail Panel | ![Node Detail](ss/nodedetail.png) |
